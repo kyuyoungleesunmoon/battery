@@ -1,0 +1,149 @@
+--- Cell 90 (markdown) ---
+# Phase 5: 모델 학습 및 평가
+
+4가지 시나리오에 대해 다양한 모델을 학습하고 성능을 비교합니다.
+
+### 사용 모델
+1. **Linear Regression** (Baseline)
+2. **SVR** (Support Vector Regression)
+3. **Random Forest** (Ensemble)
+4. **XGBoost** (Boosting)
+5. **LightGBM** (Boosting)
+
+### 평가 지표
+- **RMSE** (Root Mean Squared Error): 낮을수록 좋음
+- **R² Score**: 1에 가까울수록 좋음 (설명력)
+- **MAPE**: 평균 절대 백분율 오차
+
+
+--- Cell 91 (code) ---
+# 5-1. 모델 정의 및 학습
+import time
+from sklearn.linear_model import LinearRegression
+from sklearn.svm import SVR
+from sklearn.ensemble import RandomForestRegressor
+import xgboost as xgb
+import lightgbm as lgb
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_percentage_error
+from sklearn.preprocessing import RobustScaler
+
+models = {
+    'LinearReg': LinearRegression(),
+    'SVR': SVR(C=1.0, epsilon=0.01),
+    'RandomForest': RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1),
+    'XGBoost': xgb.XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42, n_jobs=-1),
+    'LightGBM': lgb.LGBMRegressor(n_estimators=100, learning_rate=0.1, random_state=42, n_jobs=-1, verbose=-1)
+}
+
+scale_needed = ['LinearReg', 'SVR']
+results_list = []
+trained_models = {} # 추후 Phase 7에서 사용하기 위해 저장
+
+print('🚀 모델 학습 시작...')
+print('=' * 80)
+
+for s_name, feats in scenarios.items():
+    print(f'\n[{s_name}] (Features: {len(feats)})')
+    print('-' * 60)
+    
+    # 데이터 준비
+    X_tr_curr, X_te_curr = get_scenario_data(feats, X_train, X_test)
+    
+    # Scaler (RobustScaler)
+    scaler = RobustScaler()
+    X_tr_scaled = pd.DataFrame(scaler.fit_transform(X_tr_curr), columns=feats, index=X_tr_curr.index)
+    X_te_scaled = pd.DataFrame(scaler.transform(X_te_curr), columns=feats, index=X_te_curr.index)
+    
+    for m_name, model in models.items():
+        # 스케일링 적용 여부
+        if m_name in scale_needed:
+            X_train_final, X_test_final = X_tr_scaled, X_te_scaled
+        else:
+            X_train_final, X_test_final = X_tr_curr, X_te_curr
+            
+        # 학습
+        start = time.time()
+        model.fit(X_train_final, y_train)
+        elapsed = time.time() - start
+        
+        # 저장 (S4 모델은 Teacher로 사용 가능)
+        if '전체' in s_name or '4안' in s_name:
+             trained_models[f'{s_name}_{m_name}'] = model
+        
+        # 예측 및 평가
+        y_pred = model.predict(X_test_final)
+        rmse = mean_squared_error(y_test, y_pred, squared=False)
+        r2 = r2_score(y_test, y_pred)
+        mape = mean_absolute_percentage_error(y_test, y_pred)
+        
+        print(f'{m_name:12s} | RMSE={rmse:.4f}, R2={r2:.4f}, MAPE={mape:.4f} ({elapsed:.2f}s)')
+        
+        results_list.append({
+            'Scenario': s_name, 'Model': m_name,
+            'RMSE': rmse, 'R2': r2, 'MAPE': mape
+        })
+
+print('=' * 80)
+print('✅ 학습 완료')
+
+results_df = pd.DataFrame(results_list)
+
+
+--- Cell 92 (code) ---
+# 5-2. 결과 시각화
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+plt.figure(figsize=(12, 6))
+sns.barplot(data=results_df, x='Scenario', y='RMSE', hue='Model')
+plt.title('RMSE Comparison by Scenario & Model', fontsize=14)
+plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.tight_layout()
+plt.show()
+
+
+--- Cell 93 (markdown) ---
+### 🚩 Phase 5 결론
+1. **시나리오 4 (전체 데이터)** 만이 유의미한 성능(R2 > 0.5)을 보임.
+2. 시나리오 1~3 (Initial, 4.2V, 3.6V)은 성능이 매우 낮음 (R2 < 0.1).
+3. **문제점**: 현장에서 2.5V 방전까지 모두 수행하기에는 비용/시간이 많이 듦.
+4. **해결책 (Phase 7)**: 성능이 좋은 S4 모델(Teacher)의 지식을 S2(4.2V) 모델(Student)에 전이하는 **Knowledge Distillation** 적용.
+
+
+--- Cell 94 (code) ---
+# 최적 파라미터로 Teacher 모델 재학습
+best_params = study.best_params
+best_params['objective'] = 'reg:squarederror'
+best_params['random_state'] = 42
+
+teacher_model_opt = xgb.XGBRegressor(**best_params)
+teacher_model_opt.fit(train_s4_df[FEATURES], train_s4_df[TARGET])
+
+# Soft Predict 생성 (전체 학습 데이터에 대해)
+# 주의: Student 모델은 S2 데이터만 보지만, Soft Label은 Teacher가 S4로 학습한 '지식'입니다.
+# 여기서는 X_train_s4 (전체) 에 대한 예측값을 생성하여 Student 학습 시 사용합니다.
+# 실제 Student 학습 시에는 해당 인스턴스에 맞는 Teacher의 예측값이 필요합니다.
+# 간편한 구현을 위해 train_df 전체에 대해 예측값을 미리 생성해 둡니다.
+
+# 전체 데이터에 대한 Teacher 예측값 생성 (Soft Labels)
+y_teacher_pred = teacher_model_opt.predict(train_df[FEATURES])
+
+# 데이터프레임에 Soft Label 추가
+train_df['teacher_pred'] = y_teacher_pred
+
+print('✅ 최적화된 Teacher 모델 학습 및 Soft Label 생성 완료')
+print(f'Soft Label Sample: {y_teacher_pred[:5]}')
+
+
+--- Cell 95 (markdown) ---
+# Phase 7: Teacher-Student 기반 성능 고도화 (Knowledge Distillation)
+
+**목표**: 저비용 피처셋(S2, Initial+4.2V)만 사용하는 Student 모델의 성능을, 고성능 피처셋(S4, Full)을 사용하는 Teacher 모델 수준으로 향상시킵니다.
+
+### 전략
+1. **Teacher**: S4(전체 피처)로 학습된 **XGBoost** (Phase 5 Best Model)
+2. **Student**: S2(제한된 피처)로 학습할 **LightGBM** (Light but Fast)
+3. **Distillation**: Teacher의 예측값(Soft Target)을 Student 학습에 반영
+   - Loss = alpha * MSE(y_true) + (1-alpha) * MSE(y_teacher_pred)
+
+

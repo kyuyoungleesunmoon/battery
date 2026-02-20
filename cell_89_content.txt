@@ -1,0 +1,5 @@
+# 4-2. 시나리오별 데이터셋 준비 함수
+def get_scenario_data(scenario_features, X_train, X_test):
+    return X_train[scenario_features], X_test[scenario_features]
+
+print('✅ Phase 4 완료 → Phase 5 (모델 학습)로 진행')

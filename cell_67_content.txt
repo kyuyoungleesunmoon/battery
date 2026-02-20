@@ -1,0 +1,41 @@
+# ============================================================
+# 3-4. 시나리오별 피처 리스트 확정
+# ============================================================
+
+# 유지 파생변수 리스트
+remaining_all = FEATURES + remaining_derived
+
+# 시나리오 정의
+scenario1_features = ['initial_voltage', 'initial_impedance', 'ocv_deviation']
+
+scenario2_features = ['initial_voltage', 'initial_impedance',
+                      'v42_voltage', 'v42_impedance',
+                      'impedance_ratio_42', 'voltage_delta_initial_42',
+                      'impedance_voltage_product', 'health_index', 'ocv_deviation']
+
+scenario3_features = scenario2_features + [
+    'v36_voltage', 'v36_impedance', 'impedance_mean']
+
+scenario4_features = remaining_all
+
+scenarios = {
+    '시나리오 1 (INITIAL only)': scenario1_features,
+    '시나리오 2 (INITIAL + 4.2V)': scenario2_features,
+    '시나리오 3 (INITIAL + 4.2V + 3.6V)': scenario3_features,
+    '시나리오 4 (전체)': scenario4_features,
+}
+
+print('📋 시나리오별 피처 구성')
+print('=' * 70)
+for name, feats in scenarios.items():
+    corrs = [(f, df_clean[f].corr(df_clean[TARGET])) for f in feats]
+    corrs.sort(key=lambda x: abs(x[1]), reverse=True)
+    max_r = max(abs(r) for _, r in corrs)
+    print(f'\n{name} ({len(feats)}개 피처, 최대|r|={max_r:.3f}):')
+    for f, r in corrs:
+        strength = '🟢' if abs(r) > 0.5 else ('🟡' if abs(r) > 0.2 else '🔴')
+        print(f'  {strength} {f:35s}: r={r:+.4f}')
+
+print('\n' + '=' * 70)
+print('✅ Phase 3 완료 → Phase 4 (학습 데이터 구성)로 진행')
+print('=' * 70)
