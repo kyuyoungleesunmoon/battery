@@ -1,0 +1,13 @@
+# Python 3.14.2 (conda: bettery) 호환 버전 - 2026-02-21 확인
+pandas>=3.0.1
+numpy>=2.4.2
+matplotlib>=3.10.8
+seaborn>=0.13.2
+scipy>=1.17.0
+statsmodels>=0.14.6
+scikit-learn>=1.8.0
+xgboost>=3.2.0
+lightgbm>=4.6.0
+optuna>=4.7.0
+ipykernel>=7.2.0
+jinja2>=3.1.0
