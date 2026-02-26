@@ -2,17 +2,33 @@
 import warnings
 warnings.filterwarnings('ignore')
 
+import os
+import platform
 import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+import matplotlib.font_manager as fm
 import seaborn as sns
 
 # ── 페이지 설정 ──
 st.set_page_config(page_title='Phase 9 리포트', page_icon='🔋', layout='wide')
-plt.rcParams['font.family'] = 'Malgun Gothic'
-plt.rcParams['axes.unicode_minus'] = False
+
+# ── 한글 폰트 설정 (Windows: Malgun Gothic, Linux/Cloud: NanumGothic) ──
+def _setup_korean_font():
+    if platform.system() == 'Windows':
+        plt.rcParams['font.family'] = 'Malgun Gothic'
+    else:
+        # Streamlit Cloud (Linux) — fonts-nanum 패키지 사용
+        font_dirs = ['/usr/share/fonts/truetype/nanum']
+        font_files = fm.findSystemFonts(fontpaths=font_dirs)
+        for f in font_files:
+            fm.fontManager.addfont(f)
+        plt.rcParams['font.family'] = 'NanumGothic'
+    plt.rcParams['axes.unicode_minus'] = False
+
+_setup_korean_font()
 
 # ── 상수 ──
 COMBOS = {
