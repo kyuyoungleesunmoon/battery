@@ -1,6 +1,18 @@
 # AutoML & ML Output
 AutogluonModels_*
+AG_test_raw/
 catboost_info/
 catboost_*/
 flaml_*.log
 *.log
+
+# Agent / temp
+.agents/
+optimal_combo_results.txt
+__pycache__/
+*.pyc
+
+# Debug / exploration scripts
+debug_*.txt
+phase5_results.txt
+cell_*_content.txt
