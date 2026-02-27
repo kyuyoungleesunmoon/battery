@@ -1,8 +1,6 @@
-# Streamlit Cloud 배포용 - 2026-02-27
-streamlit
-pandas
-numpy
-matplotlib
-seaborn
-plotly
-Pillow
+streamlit>=1.30.0
+plotly>=5.18.0
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+catboost>=1.2.0
