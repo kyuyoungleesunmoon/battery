@@ -1,0 +1,56 @@
+[
+  {
+    "type": "code_output",
+    "phase_id": "phase13_3",
+    "cell_index": 80,
+    "text": "======================================================================\nPhase 9 최종 결론\n======================================================================\n\n[전체 최고 성능]\n  조합: P1_S1+v25\n  모델: RandomForest\n  RMSE=0.022804, R2=0.6109, MAPE=0.24%\n\n[S1+v25 (초기+완전방전, 2단계 공정)]\n  모델: RandomForest\n  RMSE=0.022804, R2=0.6109, MAPE=0.24%\n  -> S4 대비 R2 달성률: 101.3%\n\n[v25만 (완전방전만, 1단계 공정)]\n  모델: RandomForest\n  RMSE=0.024281, R2=0.5589, MAPE=0.27%\n\n[실용적 추천]\n  - 최고 성능:    S4_ALL (8피처, 4단계 전체 측정)\n  - 최적 효율:    S1+v25 (4피처, 초기+완전방전 2단계)\n  - 최소 측정:    v25 only (2피처, 완전방전 1단계)\n  -> v25(완전방전) 측정이 capacity 예측의 핵심\n======================================================================\n",
+    "images": [
+      "phase13_3_img0.png"
+    ]
+  },
+  {
+    "type": "markdown",
+    "cell_index": 102,
+    "content": "# Phase 12. 클러스터링 ARI 성능 획기적 개선\n\n**목표:** Ground Truth(전체 피처 기반) 클러스터와 Prediction(부분 피처 기반) 클러스터 간의 ARI를 극적으로 향상시킵니다.\n\n**근본 원인:** 기존 Phase 11에서 GT는 17차원, Pred는 1차원(capacity만)으로 클러스터링하여 차원 불일치가 ARI 저하의 핵심 원인이었습니다.\n\n**전략:**\n1. 다변량 예측 (Multi-Output Prediction)\n2. UMAP 차원 축소 후 클러스터링\n3. GMM / Spectral / HDBSCAN 알고리즘 다양화\n4. 종합 비교\n"
+  },
+  {
+    "type": "markdown",
+    "cell_index": 103,
+    "content": "## 12-1. 전략 1: 다변량 예측 (Multi-Output Prediction)\n"
+  },
+  {
+    "type": "markdown",
+    "cell_index": 105,
+    "content": "## 12-2. 전략 2: UMAP 차원 축소 후 클러스터링\n"
+  },
+  {
+    "type": "markdown",
+    "cell_index": 107,
+    "content": "## 12-3. 전략 3: 클러스터링 알고리즘 다양화 (GMM, Spectral, HDBSCAN)\n"
+  },
+  {
+    "type": "markdown",
+    "cell_index": 109,
+    "content": "## 12-4. 종합 비교 및 최종 결론\n"
+  },
+  {
+    "type": "markdown",
+    "cell_index": 111,
+    "content": "---\n# 📊 Phase 13. 최종 결론 리포트\n\n## 배터리 품질 예측 기반 스마트 패키징 — 비용·시간 혁신 보고서\n\n본 리포트는 전체 측정 공정(4단계)에서 수집되는 데이터와 **부분 측정(초기+완전방전, 2단계)**만으로 예측한 데이터의 \n**클러스터링(배터리 묶음 분류) 결과가 통계적으로 동등**함을 입증하고,\n이를 통해 달성 가능한 **비용 및 시간 절감 효과**를 정량적으로 제시합니다.\n"
+  },
+  {
+    "type": "markdown",
+    "cell_index": 112,
+    "content": "## 13-1. Executive Summary\n"
+  },
+  {
+    "type": "markdown",
+    "cell_index": 114,
+    "content": "## 13-2. 비용·시간 절감 효과 상세 분석\n"
+  },
+  {
+    "type": "markdown",
+    "cell_index": 116,
+    "content": "## 13-3. 최종 결론\n"
+  }
+]
