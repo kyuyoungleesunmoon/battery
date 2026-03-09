@@ -1,0 +1,3 @@
+--- Markdown Cells in train.ipynb ---
+Cell 140: # Phase 10: KD 정보채널 보완 — 관계·순서 기반 Knowledge Distillation
+Cell 145: ## Phase 10 종합 결론: KD 정보채널 보완 결과

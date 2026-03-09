@@ -1,0 +1,10 @@
+Cell 37: # Phase 2: 파생변수 생성 (Feature Engineering)
+Cell 56: # Phase 3: 데이터 전처리 및 피처 선택
+Cell 73: # Phase 4: 최종 학습 데이터 구성
+Cell 88: # Phase 4: 학습 데이터 구성 (Data Splitting)
+Cell 92: # Phase 5: 모델 학습 및 평가
+Cell 98: # Phase 7: Teacher-Student 기반 성능 고도화 (Knowledge Distillation)
+Cell 114: # Phase 8: 성능 고도화 실험 (Systematic Improvement)
+Cell 132: # Phase 9: S1 집중 개선 — 최소 피처로 최대 성능
+Cell 140: # Phase 10: KD 정보채널 보완 — 관계·순서 기반 Knowledge Distillation
+Cell 145 (contains Phase 10): ## Phase 10 종합 결론: KD 정보채널 보완 결과...

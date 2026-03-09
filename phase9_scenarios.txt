@@ -1,0 +1,1088 @@
+--- Cell 42 ---
+remaining_all = FEATURES + remaining_derived
+
+# 시나리오 정의
+scenario1_features = ['initial_voltage', 'initial_impedance', 'ocv_deviation']
+
+scenario2_features = ['initial_voltage', 'initial_impedance',
+                      'v42_voltage', 'v42_impedance',
+                      'impedance_ratio_42', 'voltage_delta_initial_42',
+                      'impedance_voltage_product', 'health_index', 'ocv_deviation']
+
+scenario3_features = scenario2_features + [
+    'v36_voltage', 'v36_impedance', 'impedance_mean']
+
+scenario4_features = remaining_all
+
+scenarios = {
+    'S1_INITIAL': scenario1_features,
+    'S2_INITIAL_42V': scenario2_features,
+    'S3_INITIAL_42V_36V': scenario3_features,
+    'S4_ALL': scenario4_features,
+}
+
+print('📋 시나리오별 피처 구성')
+print('=' * 70)
+for name, feats in scenarios.items():
+    corrs = [(f, df_clean[f].corr(df_clean[TARGET])) for f in feats]
+    corrs.sort(key=lambda x: abs(x[1]), reverse=True)
+    max_r = max(abs(r) for _, r in corrs)
+    print(f'\n{name} ({len(feats)}개 피처, 최대|r|={max_r:.3f}):')
+    for f, r in corrs:
+        strength = '🟢' if abs(r) > 0.5 else ('🟡' if abs(r) > 0.2 else '🔴')
+        print(f'  {strength} {f:35s}: r={r:+.4f}')
+
+print('\n' + '=' * 70)
+print('✅ Phase 3 완료')
+
+--- Cell 47 ---
+scenario_datasets = {}
+print('📋 시나리오별 데이터셋 구성')
+print('=' * 70)
+
+for name, feats in scenarios.items():
+    X_tr = X_train[feats]
+    X_te = X_test[feats]
+    scenario_datasets[name] = {
+        'X_train': X_tr, 'X_test': X_te,
+        'y_train': y_train, 'y_test': y_test,
+        'features': feats
+    }
+    na_count = X_tr.isna().sum().sum() + X_te.isna().sum().sum()
+    inf_count = np.isinf(X_tr.select_dtypes(include=[np.number])).sum().sum()
+    print(f'  {name} ({len(feats)}개 피처): Train {X_tr.shape}, Test {X_te.shape} | 결측: {na_count}, 무한: {inf_count} → {"✅" if na_count+inf_count == 0 else "⚠️"}')
+
+print(f'\n✅ 4개 시나리오 데이터셋 준비 완료')
+
+--- Cell 48 ---
+for name, feats in scenarios.items():
+    print(name)
+
+--- Cell 50 ---
+# 헬퍼 함수 정의
+def get_scenario_data(scenario_features, X_train, X_test):
+    return X_train[scenario_features], X_test[scenario_features]
+
+# Train/Test 분포 시각화
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+axes[0].hist(y_train, bins=50, alpha=0.6, label=f'Train (n={len(y_train)})',
+             color='steelblue', density=True)
+axes[0].hist(y_test, bins=50, alpha=0.6, label=f'Test (n={len(y_test)})',
+             color='coral', density=True)
+axes[0].set_title('Capacity 분포 (Train vs Test)', fontweight='bold')
+axes[0].set_xlabel('Capacity (Ah)')
+axes[0].legend()
+axes[0].grid(True, alpha=0.3)
+
+s_names = list(scenarios.keys())
+s_counts = [len(v) for v in scenarios.values()]
+bars = axes[1].bar(s_names, s_counts, color=['#3498db','#2ecc71','#e67e22','#e74c3c'])
+axes[1].set_title('시나리오별 피처 수', fontweight='bold')
+axes[1].set_ylabel('피처 수')
+for bar, cnt in zip(bars, s_counts):
+    axes[1].text(bar.get_x()+bar.get_width()/2., bar.get_height()+0.3,
+                 str(cnt), ha='center', fontweight='bold')
+
+plt.tight_layout()
+plt.show()
+
+print('💡 트리 기반 모델: 스케일링 없이 원본 투입')
+print('💡 선형 모델/SVR: RobustScaler 적용')
+print('\n✅ Phase 4 완료 → Phase 5 (모델 학습)로 진행')
+
+--- Cell 52 ---
+import time
+from sklearn.linear_model import LinearRegression
+from sklearn.svm import SVR
+from sklearn.ensemble import RandomForestRegressor
+import xgboost as xgb
+import lightgbm as lgb
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_percentage_error
+
+models = {
+    'LinearReg': LinearRegression(),
+    'SVR': SVR(C=1.0, epsilon=0.01),
+    'RandomForest': RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1),
+    'XGBoost': xgb.XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42, n_jobs=-1),
+    'LightGBM': lgb.LGBMRegressor(n_estimators=100, learning_rate=0.1, random_state=42, n_jobs=-1, verbose=-1)
+}
+
+scale_needed = ['LinearReg', 'SVR']
+results_list = []
+trained_models = {}
+
+print('🚀 Phase 5: 모델 학습 시작')
+print('=' * 80)
+
+for s_name, feats in scenarios.items():
+    print(f'\n[{s_name}] (Features: {len(feats)})')
+    print('-' * 60)
+    
+    X_tr_curr, X_te_curr = get_scenario_data(feats, X_train, X_test)
+    
+    scaler = RobustScaler()
+    X_tr_scaled = pd.DataFrame(scaler.fit_transform(X_tr_curr), columns=feats, index=X_tr_curr.index)
+    X_te_scaled = pd.DataFrame(scaler.transform(X_te_curr), columns=feats, index=X_te_curr.index)
+    
+    for m_name, model in models.items():
+        if m_name in scale_needed:
+            X_train_final, X_test_final = X_tr_scaled, X_te_scaled
+        else:
+            X_train_final, X_test_final = X_tr_curr, X_te_curr
+        
+        start = time.time()
+        model.fit(X_train_final, y_train)
+        elapsed = time.time() - start
+        
+        trained_models[f'{s_name}_{m_name}'] = model
+        
+        y_pred = model.predict(X_test_final)
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+        r2 = r2_score(y_test, y_pred)
+        mape = mean_absolute_percentage_error(y_test, y_pred)
+        
+        print(f'{m_name:12s} | RMSE={rmse:.4f}, R2={r2:.4f}, MAPE={mape:.4f} ({elapsed:.2f}s)')
+        
+        results_list.append({
+            'Scenario': s_name, 'Model': m_name,
+            'RMSE': rmse, 'R2': r2, 'MAPE': mape
+        })
+
+print('=' * 80)
+print('✅ Phase 5 학습 완료')
+results_df = pd.DataFrame(results_list)
+
+--- Cell 53 ---
+# 결과 시각화
+fig, axes = plt.subplots(1, 2, figsize=(18, 6))
+
+sns.barplot(data=results_df, x='Scenario', y='RMSE', hue='Model', ax=axes[0])
+axes[0].set_title('RMSE Comparison by Scenario & Model', fontsize=14, fontweight='bold')
+axes[0].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+
+sns.barplot(data=results_df, x='Scenario', y='R2', hue='Model', ax=axes[1])
+axes[1].set_title('R² Score by Scenario & Model', fontsize=14, fontweight='bold')
+axes[1].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+
+plt.tight_layout()
+plt.show()
+
+# 시나리오별 최고 성능
+print('\n🏆 시나리오별 최고 성능 모델:')
+for s in scenarios.keys():
+    subset = results_df[results_df['Scenario'] == s]
+    best = subset.loc[subset['RMSE'].idxmin()]
+    print(f'  {s}: {best["Model"]} (RMSE={best["RMSE"]:.4f}, R²={best["R2"]:.4f})')
+
+--- Cell 55 ---
+from catboost import CatBoostRegressor
+from flaml import AutoML
+from autogluon.tabular import TabularPredictor
+from sklearn.metrics import mean_absolute_error
+
+print('🚀 Phase 6: 시나리오(S1~S4)별 다중 벤치마킹')
+print('비교 트랙: 1) CatBoost, 2) SVR, 3) FLAML, 4) AutoGluon')
+print('=' * 70)
+
+benchmark_results = []
+
+for name, feats in scenarios.items():
+    print(f'\n▶️ 시나리오: {name}')
+    
+    X_train_s = scenario_datasets[name]['X_train']
+    X_test_s = scenario_datasets[name]['X_test']
+    y_train_s = scenario_datasets[name]['y_train']
+    y_test_s = scenario_datasets[name]['y_test']
+    
+    # === Track 1: CatBoost ===
+    print('  - Track 1. CatBoost')
+    cb = CatBoostRegressor(iterations=500, learning_rate=0.05, depth=6, verbose=0, random_seed=42)
+    cb.fit(X_train_s, y_train_s)
+    pred_cb = cb.predict(X_test_s)
+    benchmark_results.append({
+        'Scenario': name, 'Model_Track': '1_CatBoost',
+        'R2': r2_score(y_test_s, pred_cb),
+        'RMSE': np.sqrt(mean_squared_error(y_test_s, pred_cb)),
+        'MAE': mean_absolute_error(y_test_s, pred_cb)
+    })
+    
+    # === Track 2: SVR ===
+    print('  - Track 2. SVR (RBF)')
+    scaler_svr = RobustScaler()
+    X_tr_sc = scaler_svr.fit_transform(X_train_s)
+    X_te_sc = scaler_svr.transform(X_test_s)
+    svr = SVR(C=1.0, epsilon=0.1, kernel='rbf')
+    svr.fit(X_tr_sc, y_train_s)
+    pred_svr = svr.predict(X_te_sc)
+    benchmark_results.append({
+        'Scenario': name, 'Model_Track': '2_SVR',
+        'R2': r2_score(y_test_s, pred_svr),
+        'RMSE': np.sqrt(mean_squared_error(y_test_s, pred_svr)),
+        'MAE': mean_absolute_error(y_test_s, pred_svr)
+    })
+    
+    # === Track 3: FLAML ===
+    print('  - Track 3. FLAML (30s budget)')
+    flaml_automl = AutoML()
+    flaml_settings = {
+        'time_budget': 30,
+        'metric': 'r2',
+        'task': 'regression',
+        'eval_method': 'cv',
+        'log_file_name': f'flaml_{name}.log',
+        'verbose': 0
+    }
+    flaml_automl.fit(X_train=X_train_s, y_train=y_train_s, **flaml_settings)
+    pred_flaml = flaml_automl.predict(X_test_s)
+    benchmark_results.append({
+        'Scenario': name, 'Model_Track': f'3_FLAML ({flaml_automl.best_estimator})',
+        'R2': r2_score(y_test_s, pred_flaml),
+        'RMSE': np.sqrt(mean_squared_error(y_test_s, pred_flaml)),
+        'MAE': mean_absolute_error(y_test_s, pred_flaml)
+    })
+    
+    # === Track 4: AutoGluon ===
+    print('  - Track 4. AutoGluon (60s limit)')
+    train_data_ag = pd.concat([X_train_s, y_train_s], axis=1)
+    test_data_ag = pd.concat([X_test_s, y_test_s], axis=1)
+    predictor_ag = TabularPredictor(
+        label=TARGET, path=f'AutogluonModels_{name}', eval_metric='r2'
+    ).fit(train_data_ag, presets='medium_quality', time_limit=60, verbosity=0)
+    pred_ag = predictor_ag.predict(test_data_ag.drop(columns=[TARGET]))
+    benchmark_results.append({
+        'Scenario': name, 'Model_Track': '4_AutoGluon (Ensemble)',
+        'R2': r2_score(y_test_s, pred_ag),
+        'RMSE': np.sqrt(mean_squared_error(y_test_s, pred_ag)),
+        'MAE': mean_absolute_error(y_test_s, pred_ag)
+    })
+    print('  ✓ 완료')
+
+print('\n' + '=' * 70)
+print('✅ Phase 6 벤치마킹 완료')
+bench_df = pd.DataFrame(benchmark_results)
+display(bench_df.sort_values(by=['Scenario', 'R2'], ascending=[True, False]))
+
+--- Cell 56 ---
+# Phase 6 성능 시각화
+plt.figure(figsize=(14, 7))
+sns.barplot(data=bench_df, x='Scenario', y='R2', hue='Model_Track', palette='Set2')
+plt.title('시나리오 및 적용 프레임워크별 R² Score', fontsize=15, fontweight='bold')
+plt.ylabel('R² Score', fontsize=12)
+plt.xlabel('Scenario', fontsize=12)
+plt.legend(title='Model Track', loc='lower right')
+plt.grid(axis='y', linestyle='--', alpha=0.6)
+plt.tight_layout()
+plt.show()
+
+# RMSE 비교
+plt.figure(figsize=(14, 7))
+sns.barplot(data=bench_df, x='Scenario', y='RMSE', hue='Model_Track', palette='Set2')
+plt.title('시나리오 및 적용 프레임워크별 RMSE', fontsize=15, fontweight='bold')
+plt.ylabel('RMSE', fontsize=12)
+plt.xlabel('Scenario', fontsize=12)
+plt.legend(title='Model Track', loc='upper right')
+plt.grid(axis='y', linestyle='--', alpha=0.6)
+plt.tight_layout()
+plt.show()
+
+--- Cell 58 ---
+# 7-1. 벤치마크 1위 모델 식별
+best_row = bench_df.sort_values(by='R2', ascending=False).iloc[0]
+best_scenario_name = best_row['Scenario']
+best_track_name = best_row['Model_Track']
+best_r2 = best_row['R2']
+
+print('=' * 70)
+print(f'🏆 벤치마크 1위 최고 성능 모델')
+print(f'   - 시나리오: {best_scenario_name}')
+print(f'   - 프레임워크: {best_track_name}')
+print(f'   - Test R² Score: {best_r2:.4f}')
+print('=' * 70)
+
+# 데이터 준비
+X_train_best = scenario_datasets[best_scenario_name]['X_train']
+X_test_best = scenario_datasets[best_scenario_name]['X_test']
+y_train_best = scenario_datasets[best_scenario_name]['y_train']
+y_test_best = scenario_datasets[best_scenario_name]['y_test']
+best_feature_names = scenario_datasets[best_scenario_name]['features']
+
+--- Cell 59 ---
+# 7-2. 모델 재학습 및 SHAP 분석
+import shap
+
+plt.figure(figsize=(10, 6))
+
+if 'CatBoost' in best_track_name:
+    print('▶️ CatBoost 모델 SHAP 분석 (TreeExplainer)')
+    best_model_obj = CatBoostRegressor(iterations=500, learning_rate=0.05, depth=6, verbose=0, random_seed=42)
+    best_model_obj.fit(X_train_best, y_train_best)
+    explainer = shap.TreeExplainer(best_model_obj)
+    shap_values = explainer.shap_values(X_test_best)
+    shap.summary_plot(shap_values, X_test_best, feature_names=best_feature_names)
+
+elif 'SVR' in best_track_name:
+    print('▶️ SVR 모델 SHAP 분석 (KernelExplainer)')
+    scaler_svr = RobustScaler()
+    X_tr_sc = scaler_svr.fit_transform(X_train_best)
+    X_te_sc = scaler_svr.transform(X_test_best)
+    best_model_obj = SVR(C=1.0, epsilon=0.1, kernel='rbf')
+    best_model_obj.fit(X_tr_sc, y_train_best)
+    X_train_summary = shap.kmeans(X_tr_sc, 20)
+    explainer = shap.KernelExplainer(best_model_obj.predict, X_train_summary)
+    shap_values = explainer.shap_values(X_te_sc[:100])
+    shap.summary_plot(shap_values, pd.DataFrame(X_te_sc[:100], columns=best_feature_names), feature_names=best_feature_names)
+
+elif 'FLAML' in best_track_name:
+    print('▶️ FLAML 최고 모델 SHAP 분석 (TreeExplainer)')
+    flaml_automl_best = AutoML()
+    flaml_automl_best.fit(X_train=X_train_best, y_train=y_train_best, time_budget=30, metric='r2', task='regression', verbose=0)
+    best_model_obj = flaml_automl_best.model.estimator
+    try:
+        explainer = shap.TreeExplainer(best_model_obj)
+        shap_values = explainer.shap_values(X_test_best)
+        shap.summary_plot(shap_values, X_test_best, feature_names=best_feature_names)
+    except Exception:
+        print('트리 모델 외 → Feature Importance만 출력')
+        pd.Series(best_model_obj.feature_importances_, index=best_feature_names).sort_values().plot.barh(color='skyblue')
+        plt.title('FLAML Feature Importances')
+        plt.show()
+
+elif 'AutoGluon' in best_track_name:
+    print('▶️ AutoGluon 변수 중요도 추출 (Permutation 기반)')
+    predictor_path = f'AutogluonModels_{best_scenario_name}'
+    predictor_best = TabularPredictor.load(predictor_path)
+    train_data_ag = pd.concat([X_train_best, y_train_best], axis=1)
+    feature_importance_df = predictor_best.feature_importance(train_data_ag)
+    feature_importance_df['importance'].sort_values().plot.barh(color='coral')
+    plt.title('AutoGluon Feature Importances (Permutation)')
+    plt.xlabel('Importance')
+    plt.ylabel('Features')
+    plt.show()
+    best_model_obj = predictor_best
+
+else:
+    print('지원하지 않는 모델 트랙')
+
+--- Cell 60 ---
+# 7-3. 전체 벤치마크 결과 종합 요약
+print('\n📊 Phase 5 + Phase 6 전체 성능 종합')
+print('=' * 70)
+
+# Phase 5 결과
+print('\n[Phase 5 - 기본 모델]')
+p5_best = results_df.sort_values('RMSE').head(5)
+for _, row in p5_best.iterrows():
+    print(f'  {row["Scenario"]:20s} | {row["Model"]:12s} | RMSE={row["RMSE"]:.4f} | R²={row["R2"]:.4f}')
+
+# Phase 6 결과
+print('\n[Phase 6 - AutoML]')
+p6_best = bench_df.sort_values('RMSE').head(5)
+for _, row in p6_best.iterrows():
+    print(f'  {row["Scenario"]:20s} | {row["Model_Track"]:30s} | RMSE={row["RMSE"]:.4f} | R²={row["R2"]:.4f}')
+
+print(f'\n🏆 전체 최고 성능: {best_scenario_name} + {best_track_name} (R²={best_r2:.4f})')
+
+--- Cell 62 ---
+# 8-1. 최종 모델 테스트 성능 산출
+
+# best_model_obj로 테스트 예측
+if 'AutoGluon' in best_track_name:
+    y_pred_final = best_model_obj.predict(X_test_best)
+elif 'SVR' in best_track_name:
+    scaler_final = RobustScaler()
+    scaler_final.fit(X_train_best)
+    X_test_sc = scaler_final.transform(X_test_best)
+    y_pred_final = best_model_obj.predict(X_test_sc)
+else:
+    y_pred_final = best_model_obj.predict(X_test_best)
+
+final_rmse = np.sqrt(mean_squared_error(y_test_best, y_pred_final))
+final_r2 = r2_score(y_test_best, y_pred_final)
+final_mape = mean_absolute_percentage_error(y_test_best, y_pred_final)
+final_mae = mean_absolute_error(y_test_best, y_pred_final)
+
+print('=' * 70)
+print('📊 Phase 8: 최종 모델 테스트 결과')
+print('=' * 70)
+print(f'  모델: {best_track_name}')
+print(f'  시나리오: {best_scenario_name}')
+print(f'  피처 수: {len(best_feature_names)}')
+print(f'\n  📏 성능 지표:')
+print(f'     RMSE  = {final_rmse:.6f} Ah')
+print(f'     R²    = {final_r2:.4f}')
+print(f'     MAPE  = {final_mape:.4f} ({final_mape*100:.2f}%)')
+print(f'     MAE   = {final_mae:.6f} Ah')
+print('=' * 70)
+
+--- Cell 67 ---
+print('=' * 70)
+print('🏁 배터리 Capacity 예측 모델 — 최종 결과')
+print('=' * 70)
+print(f'\n🏆 최고 성능 모델: {best_track_name}')
+print(f'   시나리오: {best_scenario_name} ({len(best_feature_names)} 피처)')
+print(f'\n📏 최종 Test 성능:')
+print(f'   RMSE  = {final_rmse:.6f} Ah')
+print(f'   R²    = {final_r2:.4f}')
+print(f'   MAPE  = {final_mape*100:.2f}%')
+print(f'   MAE   = {final_mae:.6f} Ah')
+print(f'\n💡 핵심 인사이트:')
+print(f'   • Capacity 예측의 핵심 피처: v25_voltage(방전종지전압), voltage_sag(전압강하폭)')
+print(f'   • S4(전체 방전) 시나리오만 유의미한 성능 → 완전 방전 측정 필수')
+print(f'   • S1~S3(부분 측정)은 R² < 0.1로 예측력 제한적')
+print(f'\n✅ 프로젝트 완료')
+print('=' * 70)
+
+--- Cell 70 ---
+# Phase 9: 최적 측정 조합 탐색 — 파생변수 없이 원본 피처만 사용
+# df_clean이 이미 존재하면 재사용, 없으면 직접 생성
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+warnings.filterwarnings('ignore')
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import RobustScaler
+from sklearn.linear_model import LinearRegression
+from sklearn.svm import SVR
+from sklearn.ensemble import RandomForestRegressor
+import xgboost as xgb
+import lightgbm as lgb
+from catboost import CatBoostRegressor
+from flaml import AutoML
+from sklearn.metrics import (
+    mean_squared_error, r2_score,
+    mean_absolute_percentage_error, mean_absolute_error
+)
+import time
+
+plt.rcParams['font.family'] = 'Malgun Gothic'
+plt.rcParams['axes.unicode_minus'] = False
+
+# 원본 8개 피처 정의
+ORIG_FEATURES = [
+    'initial_voltage', 'initial_impedance',
+    'v42_voltage', 'v42_impedance',
+    'v25_voltage', 'v25_impedance',
+    'v36_voltage', 'v36_impedance'
+]
+TARGET = 'capacity'
+
+# df_clean 생성 (이상치 제거)
+try:
+    _ = df_clean.shape
+    print(f'df_clean 재사용: {df_clean.shape}')
+except NameError:
+    raw = pd.read_csv('./data.csv')
+    new_columns = [
+        'cell_id', 'initial_label', 'initial_voltage', 'initial_impedance',
+        'v42_label', 'v42_voltage', 'v42_impedance',
+        'v25_label', 'v25_voltage', 'v25_impedance',
+        'v36_label', 'v36_voltage', 'v36_empty', 'v36_impedance',
+        'capacity'
+    ]
+    raw.columns = new_columns
+    drop_cols = ['initial_label', 'v42_label', 'v25_label', 'v36_label', 'v36_empty']
+    df = raw.drop(columns=drop_cols)
+    numeric_cols = [c for c in df.columns if c != 'cell_id']
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    extreme_mask = (df['v36_impedance'] - df['initial_impedance']).abs() > 100
+    df_clean = df[~extreme_mask].copy()
+    print(f'df_clean 새로 생성: {df_clean.shape} (이상치 {extreme_mask.sum()}개 제거)')
+
+# Train/Test 분할 (원본 피처 기준, random_state=42)
+X_orig = df_clean[ORIG_FEATURES]
+y_orig = df_clean[TARGET]
+X_train_o, X_test_o, y_train_o, y_test_o = train_test_split(
+    X_orig, y_orig, test_size=0.2, random_state=42
+)
+print(f'Train: {len(X_train_o)}개, Test: {len(X_test_o)}개')
+
+# === 실험 조합 정의 ===
+combos = {}
+
+# Phase 1: S1 + 단일 측정
+combos['P1_S1+v42'] = ['initial_voltage', 'initial_impedance', 'v42_voltage', 'v42_impedance']
+combos['P1_S1+v25'] = ['initial_voltage', 'initial_impedance', 'v25_voltage', 'v25_impedance']
+combos['P1_S1+v36'] = ['initial_voltage', 'initial_impedance', 'v36_voltage', 'v36_impedance']
+
+# Phase 2: 단일 측정만
+combos['P2_v42_only'] = ['v42_voltage', 'v42_impedance']
+combos['P2_v25_only'] = ['v25_voltage', 'v25_impedance']
+combos['P2_v36_only'] = ['v36_voltage', 'v36_impedance']
+
+# Phase 3: 전압 vs 임피던스 분리
+combos['P3_all_voltage'] = ['initial_voltage', 'v42_voltage', 'v25_voltage', 'v36_voltage']
+combos['P3_all_impedance'] = ['initial_impedance', 'v42_impedance', 'v25_impedance', 'v36_impedance']
+combos['P3_S1v25_volt'] = ['initial_voltage', 'v25_voltage']
+combos['P3_S1v25_imp'] = ['initial_impedance', 'v25_impedance']
+combos['P3_v25_volt_1'] = ['v25_voltage']
+
+# 기준선 비교
+combos['REF_S1_only'] = ['initial_voltage', 'initial_impedance']
+combos['REF_S4_ALL'] = ORIG_FEATURES
+
+# 상관분석 출력
+print('=' * 70)
+print('Phase 9: 최적 측정 조합 탐색')
+print('=' * 70)
+
+print('\n[피처별 Capacity 상관계수]')
+for f in ORIG_FEATURES:
+    r = df_clean[f].corr(df_clean[TARGET])
+    bar = '#' * int(abs(r) * 50)
+    print(f'  {f:25s}: r={r:+.4f}  {bar}')
+
+print(f'\n[실험 조합: {len(combos)}개]')
+for name, feats in combos.items():
+    max_r = max(abs(df_clean[f].corr(df_clean[TARGET])) for f in feats)
+    print(f'  {name:25s} ({len(feats)}개) | max|r|={max_r:.3f} | {feats}')
+
+--- Cell 76 ---
+# 종합 결과 분석
+print('=' * 70)
+print('9-4. 종합 결과 분석')
+print('=' * 70)
+
+# 조합별 최고 성능
+print('\n[조합별 최고 성능 - RMSE 기준]')
+print(f'{"조합":25s} | {"피처수":>4s} | {"최고모델":20s} | {"RMSE":>8s} | {"R2":>8s} | {"MAPE":>8s}')
+print('-' * 85)
+
+combo_bests = []
+for c_name in combos.keys():
+    subset = p9_df[p9_df['Combo'] == c_name]
+    best = subset.loc[subset['RMSE'].idxmin()]
+    combo_bests.append(best)
+    print(f'{c_name:25s} | {int(best["N_Features"]):4d} | {best["Model"]:20s} | {best["RMSE"]:.4f}  | {best["R2"]:.4f}  | {best["MAPE"]*100:.2f}%')
+
+# Phase별 최고
+print('\n[Phase별 최고 성능]')
+for phase in ['P1', 'P2', 'P3', 'REF']:
+    subset = p9_df[p9_df['Phase'] == phase]
+    if len(subset) == 0:
+        continue
+    best = subset.loc[subset['RMSE'].idxmin()]
+    print(f'  {phase}: {best["Combo"]} + {best["Model"]} -> RMSE={best["RMSE"]:.4f}, R2={best["R2"]:.4f}')
+
+# 전체 Top 10
+print('\n[전체 Top 10 - RMSE 순]')
+top10 = p9_df.nsmallest(10, 'RMSE')
+print(f'{"순위":>4s} | {"조합":25s} | {"모델":20s} | {"피처":>4s} | {"RMSE":>8s} | {"R2":>8s} | {"MAPE":>8s}')
+print('-' * 100)
+for i, (_, row) in enumerate(top10.iterrows(), 1):
+    print(f'{i:4d} | {row["Combo"]:25s} | {row["Model"]:20s} | {int(row["N_Features"]):4d} | {row["RMSE"]:.4f}  | {row["R2"]:.4f}  | {row["MAPE"]*100:.2f}%')
+
+# 측정 공정 효율성 분석
+print('\n' + '=' * 70)
+print('[측정 공정 효율성 분석]')
+print('=' * 70)
+
+step_map = {
+    'P1_S1+v42': '2단계(초기+풀충전)',
+    'P1_S1+v25': '2단계(초기+완전방전)',
+    'P1_S1+v36': '2단계(초기+방전중간)',
+    'P2_v42_only': '1단계(풀충전만)',
+    'P2_v25_only': '1단계(완전방전만)',
+    'P2_v36_only': '1단계(방전중간만)',
+    'P3_all_voltage': '4단계(전압만)',
+    'P3_all_impedance': '4단계(임피던스만)',
+    'P3_S1v25_volt': '2단계(전압만)',
+    'P3_S1v25_imp': '2단계(임피던스만)',
+    'P3_v25_volt_1': '1단계(v25전압1개)',
+    'REF_S1_only': '1단계(초기만)',
+    'REF_S4_ALL': '4단계(전체)',
+}
+
+combo_best_df = pd.DataFrame([{
+    'Combo': b['Combo'], 'Model': b['Model'],
+    'N_Features': int(b['N_Features']),
+    'RMSE': b['RMSE'], 'R2': b['R2'], 'MAPE': b['MAPE']
+} for b in combo_bests]).sort_values('RMSE')
+
+ref_s4 = combo_best_df[combo_best_df['Combo'] == 'REF_S4_ALL']
+r2_s4 = ref_s4['R2'].values[0] if len(ref_s4) > 0 else 1.0
+
+print(f'\n{"조합":25s} | {"측정공정":20s} | {"피처":>4s} | {"R2":>8s} | {"RMSE":>8s} | S4대비')
+print('-' * 95)
+for _, row in combo_best_df.iterrows():
+    step = step_map.get(row['Combo'], '?')
+    pct = (row['R2'] / r2_s4 * 100) if r2_s4 > 0 else 0
+    bar = '#' * int(max(0, pct) / 5)
+    print(f'{row["Combo"]:25s} | {step:20s} | {int(row["N_Features"]):4d} | {row["R2"]:.4f}  | {row["RMSE"]:.4f}  | {pct:5.1f}% {bar}')
+
+--- Cell 78 ---
+# Phase 4: 상위 조합 + P1_S1+v25 + P2_v25_only 에 대해 FLAML 60s 강화
+print('=' * 70)
+print('9-5. 최적 조합 FLAML 강화 학습 (60s, CV=10)')
+print('=' * 70)
+
+# 상위 5개 + 필수 포함 조합
+top5_combos = combo_best_df.head(5)['Combo'].tolist()
+must_include = ['P1_S1+v25', 'P2_v25_only', 'REF_S4_ALL']
+for c in must_include:
+    if c not in top5_combos:
+        top5_combos.append(c)
+
+enhanced_results = []
+for c_name in top5_combos:
+    feats = combos[c_name]
+    print(f'\n[{c_name}] ({len(feats)}개 피처) - FLAML 60s 강화')
+
+    X_tr = X_train_o[feats]
+    X_te = X_test_o[feats]
+
+    flaml_enh = AutoML()
+    flaml_enh.fit(
+        X_train=X_tr, y_train=y_train_o,
+        time_budget=60, metric='r2', task='regression',
+        eval_method='cv', n_splits=10,
+        log_file_name=f'flaml_enhanced_p9_{c_name}.log',
+        verbose=0
+    )
+    pred = flaml_enh.predict(X_te)
+    r2_val = r2_score(y_test_o, pred)
+    rmse_val = np.sqrt(mean_squared_error(y_test_o, pred))
+    mae_val = mean_absolute_error(y_test_o, pred)
+    mape_val = mean_absolute_percentage_error(y_test_o, pred)
+    best_est = flaml_enh.best_estimator
+
+    print(f'  Best: {best_est} | RMSE={rmse_val:.4f}, R2={r2_val:.4f}, MAPE={mape_val*100:.2f}%')
+
+    enhanced_results.append({
+        'Combo': c_name, 'Model': f'FLAML_60s({best_est})',
+        'N_Features': len(feats), 'Features': feats,
+        'RMSE': rmse_val, 'R2': r2_val, 'MAPE': mape_val, 'MAE': mae_val
+    })
+
+enh_df = pd.DataFrame(enhanced_results).sort_values('RMSE')
+
+print('\n' + '=' * 70)
+print('[FLAML 강화 학습 결과]')
+for _, row in enh_df.iterrows():
+    step = step_map.get(row['Combo'], '?')
+    print(f'  {row["Combo"]:25s} | {step:20s} | {row["Model"]:25s} | RMSE={row["RMSE"]:.4f} | R2={row["R2"]:.4f} | MAPE={row["MAPE"]*100:.2f}%')
+
+--- Cell 80 ---
+# 시각화: 조합별 R2 비교 차트
+fig, axes = plt.subplots(2, 1, figsize=(16, 12))
+
+# 차트 1: 조합별 최고 R2 (막대그래프)
+combo_best_sorted = combo_best_df.sort_values('R2', ascending=True)
+colors = []
+for _, row in combo_best_sorted.iterrows():
+    if row['Combo'].startswith('REF'):
+        colors.append('#2196F3')  # 파란색: 기준선
+    elif row['Combo'].startswith('P1'):
+        colors.append('#4CAF50')  # 초록: S1+단일측정
+    elif row['Combo'].startswith('P2'):
+        colors.append('#FF9800')  # 주황: 단일측정
+    else:
+        colors.append('#9C27B0')  # 보라: 전압/임피던스 분리
+
+bars = axes[0].barh(
+    [f"{r['Combo']}\n({step_map.get(r['Combo'], '?')})" for _, r in combo_best_sorted.iterrows()],
+    combo_best_sorted['R2'], color=colors, edgecolor='white', height=0.7
+)
+for bar, (_, row) in zip(bars, combo_best_sorted.iterrows()):
+    axes[0].text(bar.get_width() + 0.005, bar.get_y() + bar.get_height()/2,
+                f'R2={row["R2"]:.4f} ({row["Model"]})',
+                va='center', fontsize=9, fontweight='bold')
+axes[0].set_xlabel('R2 Score', fontsize=12)
+axes[0].set_title('Phase 9: 측정 조합별 최고 R2 성능 비교 (파생변수 없음)', fontsize=14, fontweight='bold')
+axes[0].set_xlim(0, max(combo_best_sorted['R2']) * 1.3)
+axes[0].axvline(x=r2_s4, color='red', linestyle='--', alpha=0.7, label=f'S4 기준선 (R2={r2_s4:.4f})')
+axes[0].legend(fontsize=10)
+axes[0].grid(axis='x', alpha=0.3)
+
+# 차트 2: 피처 수 vs R2 (효율성 분석)
+for _, row in combo_best_df.iterrows():
+    marker = 's' if row['Combo'].startswith('REF') else ('o' if row['Combo'].startswith('P1') else ('^' if row['Combo'].startswith('P2') else 'D'))
+    color = '#2196F3' if row['Combo'].startswith('REF') else ('#4CAF50' if row['Combo'].startswith('P1') else ('#FF9800' if row['Combo'].startswith('P2') else '#9C27B0'))
+    axes[1].scatter(row['N_Features'], row['R2'], s=150, marker=marker, c=color, 
+                    edgecolors='black', linewidth=1, zorder=5)
+    axes[1].annotate(row['Combo'].replace('REF_', '').replace('P1_', '').replace('P2_', '').replace('P3_', ''),
+                    (row['N_Features'], row['R2']),
+                    textcoords="offset points", xytext=(8, 5),
+                    fontsize=8, fontweight='bold')
+
+axes[1].set_xlabel('피처 수', fontsize=12)
+axes[1].set_ylabel('R2 Score', fontsize=12)
+axes[1].set_title('피처 수 vs 예측 성능 (효율성 프론티어)', fontsize=14, fontweight='bold')
+axes[1].grid(True, alpha=0.3)
+
+# 범례
+from matplotlib.lines import Line2D
+legend_elements = [
+    Line2D([0], [0], marker='s', color='w', markerfacecolor='#2196F3', markersize=10, label='REF (기준선)'),
+    Line2D([0], [0], marker='o', color='w', markerfacecolor='#4CAF50', markersize=10, label='P1 (S1+단일측정)'),
+    Line2D([0], [0], marker='^', color='w', markerfacecolor='#FF9800', markersize=10, label='P2 (단일측정만)'),
+    Line2D([0], [0], marker='D', color='w', markerfacecolor='#9C27B0', markersize=10, label='P3 (전압/임피던스 분리)'),
+]
+axes[1].legend(handles=legend_elements, loc='lower right', fontsize=10)
+
+plt.tight_layout()
+plt.show()
+
+# 최종 결론
+print('=' * 70)
+print('Phase 9 최종 결론')
+print('=' * 70)
+
+overall_best = p9_df.loc[p9_df['RMSE'].idxmin()]
+print(f'\n[전체 최고 성능]')
+print(f'  조합: {overall_best["Combo"]}')
+print(f'  모델: {overall_best["Model"]}')
+print(f'  RMSE={overall_best["RMSE"]:.6f}, R2={overall_best["R2"]:.4f}, MAPE={overall_best["MAPE"]*100:.2f}%')
+
+# S1+v25 결과
+s1v25 = p9_df[p9_df['Combo'] == 'P1_S1+v25']
+if len(s1v25) > 0:
+    s1v25_best = s1v25.loc[s1v25['RMSE'].idxmin()]
+    print(f'\n[S1+v25 (초기+완전방전, 2단계 공정)]')
+    print(f'  모델: {s1v25_best["Model"]}')
+    print(f'  RMSE={s1v25_best["RMSE"]:.6f}, R2={s1v25_best["R2"]:.4f}, MAPE={s1v25_best["MAPE"]*100:.2f}%')
+    print(f'  -> S4 대비 R2 달성률: {s1v25_best["R2"]/r2_s4*100:.1f}%')
+
+# v25 only 결과
+v25only = p9_df[p9_df['Combo'] == 'P2_v25_only']
+if len(v25only) > 0:
+    v25_best = v25only.loc[v25only['RMSE'].idxmin()]
+    print(f'\n[v25만 (완전방전만, 1단계 공정)]')
+    print(f'  모델: {v25_best["Model"]}')
+    print(f'  RMSE={v25_best["RMSE"]:.6f}, R2={v25_best["R2"]:.4f}, MAPE={v25_best["MAPE"]*100:.2f}%')
+
+print(f'\n[실용적 추천]')
+print(f'  - 최고 성능:    S4_ALL (8피처, 4단계 전체 측정)')
+print(f'  - 최적 효율:    S1+v25 (4피처, 초기+완전방전 2단계)')
+print(f'  - 최소 측정:    v25 only (2피처, 완전방전 1단계)')
+print(f'  -> v25(완전방전) 측정이 capacity 예측의 핵심')
+print('=' * 70)
+
+--- Cell 82 ---
+# 10-1. Capacity 단독 클러스터링 + Phase 9 결론 모델 기반 클러스터링
+
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score, adjusted_rand_score
+from sklearn.preprocessing import StandardScaler
+
+# ------------------------------------------------------------
+# 안전장치: 필요한 변수 확인
+# ------------------------------------------------------------
+required_vars = ['df_clean', 'p9_df', 'combos']
+missing_vars = [v for v in required_vars if v not in globals()]
+if missing_vars:
+    raise RuntimeError(f'다음 변수가 없습니다: {missing_vars}. Phase 9(특히 9-1~9-4)를 먼저 실행하세요.')
+
+# 원본 데이터(파생변수 제외)
+if 'ORIG_FEATURES' not in globals():
+    ORIG_FEATURES = [
+        'initial_voltage', 'initial_impedance',
+        'v42_voltage', 'v42_impedance',
+        'v25_voltage', 'v25_impedance',
+        'v36_voltage', 'v36_impedance'
+    ]
+if 'TARGET' not in globals():
+    TARGET = 'capacity'
+
+X_all = df_clean[ORIG_FEATURES].copy()
+y_all = df_clean[TARGET].copy()
+
+# ------------------------------------------------------------
+# K 자동 탐색 함수 (silhouette 최대)
+# ------------------------------------------------------------
+def find_best_k(X_array, k_min=2, k_max=6, random_state=42):
+    best_k, best_score, best_labels, best_model = None, -1, None, None
+    records = []
+
+    for k in range(k_min, k_max + 1):
+        km = KMeans(n_clusters=k, n_init=20, random_state=random_state)
+        labels = km.fit_predict(X_array)
+        score = silhouette_score(X_array, labels)
+        records.append({'k': k, 'silhouette': score})
+
+        if score > best_score:
+            best_k, best_score, best_labels, best_model = k, score, labels, km
+
+    return best_k, best_score, best_labels, best_model, pd.DataFrame(records)
+
+# ------------------------------------------------------------
+# (A) Capacity 단독 클러스터링
+# ------------------------------------------------------------
+cap_scaler = StandardScaler()
+X_cap = cap_scaler.fit_transform(y_all.values.reshape(-1, 1))
+
+cap_k, cap_sil, cap_labels, cap_model, cap_search_df = find_best_k(X_cap, k_min=2, k_max=6)
+
+df_cluster = df_clean.copy().reset_index(drop=True)
+df_cluster['cluster_capacity'] = cap_labels
+
+# cluster 번호를 capacity 평균 기준으로 정렬(0=저용량, ...)
+cap_mean = df_cluster.groupby('cluster_capacity')[TARGET].mean().sort_values()
+cap_rank_map = {old: new for new, old in enumerate(cap_mean.index)}
+df_cluster['cluster_capacity'] = df_cluster['cluster_capacity'].map(cap_rank_map)
+
+print('=' * 80)
+print('10-1A. Capacity 단독 클러스터링 완료')
+print('=' * 80)
+print(f'선정된 군집 수 k = {cap_k} (silhouette={cap_sil:.4f})')
+print('\n[k 탐색 결과]')
+print(cap_search_df.to_string(index=False))
+print('\n[Capacity 군집 요약]')
+print(df_cluster.groupby('cluster_capacity')[TARGET].agg(['count', 'mean', 'std', 'min', 'max']).round(4))
+
+# ------------------------------------------------------------
+# (B) Phase 9 최종 결론 모델 선택
+#  - 전체 최고
+#  - P1_S1+v25 최고
+#  - P2_v25_only 최고
+# ------------------------------------------------------------
+select_rows = []
+
+# 전체 최고
+overall_best_row = p9_df.loc[p9_df['RMSE'].idxmin()]
+select_rows.append(overall_best_row)
+
+# P1_S1+v25 최고
+if (p9_df['Combo'] == 'P1_S1+v25').any():
+    p1_row = p9_df[p9_df['Combo'] == 'P1_S1+v25'].sort_values('RMSE').iloc[0]
+    select_rows.append(p1_row)
+
+# P2_v25_only 최고
+if (p9_df['Combo'] == 'P2_v25_only').any():
+    p2_row = p9_df[p9_df['Combo'] == 'P2_v25_only'].sort_values('RMSE').iloc[0]
+    select_rows.append(p2_row)
+
+selected_model_df = pd.DataFrame(select_rows).drop_duplicates(subset=['Combo', 'Model']).reset_index(drop=True)
+
+print('\n' + '=' * 80)
+print('10-1B. Phase 9 결론 모델 선택')
+print('=' * 80)
+print(selected_model_df[['Combo', 'Model', 'RMSE', 'R2', 'MAPE']].round(4).to_string(index=False))
+
+# ------------------------------------------------------------
+# 모델 문자열 -> 학습기 생성
+# ------------------------------------------------------------
+def build_model_from_name(model_name: str, random_state: int = 42):
+    model_name = str(model_name)
+
+    if model_name.startswith('FLAML'):
+        automl = AutoML()
+        return ('FLAML', automl)
+    if model_name == 'CatBoost':
+        return ('CatBoost', CatBoostRegressor(iterations=500, learning_rate=0.05, depth=6, verbose=0, random_seed=random_state))
+    if model_name == 'LinearReg':
+        return ('LinearReg', LinearRegression())
+    if model_name == 'SVR':
+        return ('SVR', SVR(C=1.0, epsilon=0.01))
+    if model_name == 'RandomForest':
+        return ('RandomForest', RandomForestRegressor(n_estimators=200, random_state=random_state, n_jobs=-1))
+    if model_name == 'XGBoost':
+        return ('XGBoost', xgb.XGBRegressor(n_estimators=200, learning_rate=0.1, random_state=random_state, n_jobs=-1))
+    if model_name == 'LightGBM':
+        return ('LightGBM', lgb.LGBMRegressor(n_estimators=200, learning_rate=0.1, random_state=random_state, n_jobs=-1, verbose=-1))
+
+    # 예외: 문자열 변형 대응
+    if 'CatBoost' in model_name:
+        return ('CatBoost', CatBoostRegressor(iterations=500, learning_rate=0.05, depth=6, verbose=0, random_seed=random_state))
+    if 'XGBoost' in model_name:
+        return ('XGBoost', xgb.XGBRegressor(n_estimators=200, learning_rate=0.1, random_state=random_state, n_jobs=-1))
+    if 'LightGBM' in model_name:
+        return ('LightGBM', lgb.LGBMRegressor(n_estimators=200, learning_rate=0.1, random_state=random_state, n_jobs=-1, verbose=-1))
+    if 'RandomForest' in model_name:
+        return ('RandomForest', RandomForestRegressor(n_estimators=200, random_state=random_state, n_jobs=-1))
+    if 'SVR' in model_name:
+        return ('SVR', SVR(C=1.0, epsilon=0.01))
+
+    raise ValueError(f'지원하지 않는 모델명: {model_name}')
+
+# ------------------------------------------------------------
+# (C) 선택 모델 예측값 생성 (전체 샘플 대상)
+# ------------------------------------------------------------
+pred_feature_df = pd.DataFrame(index=df_cluster.index)
+trained_model_registry = []
+
+for i, row in selected_model_df.iterrows():
+    combo_name = row['Combo']
+    model_name = row['Model']
+    feats = combos[combo_name]
+
+    model_tag, model_obj = build_model_from_name(model_name)
+    X_fit = df_cluster[feats]
+    y_fit = df_cluster[TARGET]
+
+    # 스케일링 필요 모델 처리
+    if model_tag in ['LinearReg', 'SVR']:
+        scaler = RobustScaler()
+        X_fit_sc = scaler.fit_transform(X_fit)
+
+        if model_tag == 'SVR':
+            model_obj.fit(X_fit_sc, y_fit)
+            y_pred_all = model_obj.predict(X_fit_sc)
+        else:
+            model_obj.fit(X_fit_sc, y_fit)
+            y_pred_all = model_obj.predict(X_fit_sc)
+
+    elif model_tag == 'FLAML':
+        # 재실행 시간 절약을 위해 20초 예산
+        model_obj.fit(
+            X_train=X_fit, y_train=y_fit,
+            time_budget=20,
+            metric='r2',
+            task='regression',
+            eval_method='cv',
+            log_file_name=f'flaml_phase10_{combo_name}.log',
+            verbose=0
+        )
+        y_pred_all = model_obj.predict(X_fit)
+
+    else:
+        model_obj.fit(X_fit, y_fit)
+        y_pred_all = model_obj.predict(X_fit)
+
+    pred_col = f'pred_{combo_name}_{model_tag}'
+    pred_feature_df[pred_col] = y_pred_all
+
+    trained_model_registry.append({
+        'combo': combo_name,
+        'model_raw': model_name,
+        'model_used': model_tag,
+        'feature_count': len(feats),
+        'pred_col': pred_col
+    })
+
+trained_model_df = pd.DataFrame(trained_model_registry)
+print('\n[학습/예측 완료 모델]')
+print(trained_model_df.to_string(index=False))
+
+# ------------------------------------------------------------
+# (D) 모델 예측 기반 클러스터링
+# ------------------------------------------------------------
+model_scaler = StandardScaler()
+X_model_cluster = model_scaler.fit_transform(pred_feature_df.values)
+
+mdl_k, mdl_sil, mdl_labels, mdl_model, mdl_search_df = find_best_k(X_model_cluster, k_min=2, k_max=6)
+
+df_cluster['cluster_model'] = mdl_labels
+
+# model cluster도 실제 capacity 평균 기준으로 정렬
+mdl_mean = df_cluster.groupby('cluster_model')[TARGET].mean().sort_values()
+mdl_rank_map = {old: new for new, old in enumerate(mdl_mean.index)}
+df_cluster['cluster_model'] = df_cluster['cluster_model'].map(mdl_rank_map)
+
+print('\n' + '=' * 80)
+print('10-1C. 모델 예측 기반 클러스터링 완료')
+print('=' * 80)
+print(f'선정된 군집 수 k = {mdl_k} (silhouette={mdl_sil:.4f})')
+print('\n[k 탐색 결과]')
+print(mdl_search_df.to_string(index=False))
+print('\n[모델기반 군집 요약]')
+print(df_cluster.groupby('cluster_model')[TARGET].agg(['count', 'mean', 'std', 'min', 'max']).round(4))
+
+# 일치도 지표
+ari = adjusted_rand_score(df_cluster['cluster_capacity'], df_cluster['cluster_model'])
+print('\n[군집 일치도]')
+print(f'Adjusted Rand Index (Capacity vs Model) = {ari:.4f}')
+
+# 전역 결과 객체(후속 셀에서 사용)
+phase10_outputs = {
+    'df_cluster': df_cluster,
+    'capacity_cluster_k': cap_k,
+    'capacity_cluster_silhouette': cap_sil,
+    'model_cluster_k': mdl_k,
+    'model_cluster_silhouette': mdl_sil,
+    'cluster_ari': ari,
+    'selected_model_df': selected_model_df,
+    'trained_model_df': trained_model_df,
+    'pred_feature_df': pred_feature_df,
+    'cap_search_df': cap_search_df,
+    'mdl_search_df': mdl_search_df
+}
+
+print('\n✅ Phase 10-1 완료')
+
+--- Cell 88 ---
+# Phase 9/10에서 훈련된 최고 성능 모델의 결과값을 적용한다고 가정
+
+# 이전 코드들에서 정의된 eff_features가 있다고 가정합니다
+# eff_features = phase9_scenarios['P1_S1+v25'] (예시)
+# pred_capacity = best_model.predict(data[eff_features])
+
+# data['Pred_Capacity_Eff'] = pred_capacity
+
+# 효율 데이터 + 예측 값으로 스케일링 및 클러스터링 수행
+# (주석 해제 후, 본인 환경의 변수명에 맞게 실행하세요)
+
+'''
+pred_features = eff_features + ['Pred_Capacity_Eff']
+
+scaler_pred = StandardScaler()
+X_pred_scaled = scaler_pred.fit_transform(data[pred_features].dropna())
+
+kmeans_pred = KMeans(n_clusters=N_CLUSTERS, random_state=RANDOM_STATE_CLUSTER, n_init='auto')
+data['Cluster_Pred'] = kmeans_pred.fit_predict(X_pred_scaled)
+'''
+print("[안내] 모델 예측 Capacity가 포함된 Cluster_Pred를 위 주석을 풀고 생성해주세요.")
+
+--- Cell 95 ---
+# S4_ALL이 앞선 Phase에서 선언되어 있다고 가정합니다. (17개 특징)
+# 'data' 변수의 타입 에러를 방지하기 위해, 원본 데이터프레임을 명시적으로 df로 불러오거나 타입을 확인합니다.
+
+# 'data'가 DataFrame이 아니고 Series일 경우(위 셀 등에서 덮어씌워진 경우),
+# 원본 df 이름이 'df_clean' 혹은 'df' 일 수 있으므로 이를 새로 할당합니다.
+if 'df' in locals() and type(df).__name__ == 'DataFrame':
+    data_df = df.copy()
+else:
+    # 만약 df라는 이름도 없다면 csv 다시 불러오기
+    import pandas as pd
+    try:
+        data_df = pd.read_csv('data.csv')
+    except:
+        data_df = pd.DataFrame() # 최후의 방어
+        print('경고: data.csv를 찾지 못했습니다.')
+
+gt_features = S4_ALL_features.copy() if 'S4_ALL_features' in locals() else list(data_df.select_dtypes(include=[np.number]).columns)
+
+if 'Capacity' not in gt_features and 'Capacity' in data_df.columns:
+    gt_features.append('Capacity')
+
+# 결측치 확인 및 제거 (원본 인덱스 유지)
+data_gt = data_df[gt_features].copy().dropna()
+
+# 스케일링 수행
+scaler_gt = StandardScaler()
+X_gt_scaled = scaler_gt.fit_transform(data_gt)
+
+# 최적 군집 수 탐색
+inertias = []
+K_range = range(2, 10)
+for k in K_range:
+    kmeans = KMeans(n_clusters=k, random_state=RANDOM_STATE_CLUSTER, n_init='auto')
+    kmeans.fit(X_gt_scaled)
+    inertias.append(kmeans.inertia_)
+
+plt.figure(figsize=(6, 4))
+plt.plot(K_range, inertias, marker='o')
+plt.title('Elbow Method For Optimal k (Ground Truth)')
+plt.xlabel('Number of clusters (k)')
+plt.ylabel('Inertia')
+plt.show()
+
+# k=4 적용
+N_CLUSTERS = 4
+kmeans_gt = KMeans(n_clusters=N_CLUSTERS, random_state=RANDOM_STATE_CLUSTER, n_init='auto')
+data_gt_labels = kmeans_gt.fit_predict(X_gt_scaled)
+
+# dropna로 남은 인덱스에만 매핑
+data_df.loc[data_gt.index, 'Cluster_GT'] = data_gt_labels
+
+# 사용자가 다음 셀들에서 'data' 변수를 쓴다면 DataFrame 형태로 다시 돌려줌
+data = data_df.copy()
+
+print(f"[완료] Ground Truth 클러스터링 (k={N_CLUSTERS})")
+
+

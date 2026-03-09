@@ -1,0 +1,163 @@
+--- Cell 88 ---
+# Phase 9/10에서 훈련된 최고 성능 모델의 결과값을 적용한다고 가정
+
+# 이전 코드들에서 정의된 eff_features가 있다고 가정합니다
+# eff_features = phase9_scenarios['P1_S1+v25'] (예시)
+# pred_capacity = best_model.predict(data[eff_features])
+
+# data['Pred_Capacity_Eff'] = pred_capacity
+
+# 효율 데이터 + 예측 값으로 스케일링 및 클러스터링 수행
+# (주석 해제 후, 본인 환경의 변수명에 맞게 실행하세요)
+
+'''
+pred_features = eff_features + ['Pred_Capacity_Eff']
+
+scaler_pred = StandardScaler()
+X_pred_scaled = scaler_pred.fit_transform(data[pred_features].dropna())
+
+kmeans_pred = KMeans(n_clusters=N_CLUSTERS, random_state=RANDOM_STATE_CLUSTER, n_init='auto')
+data['Cluster_Pred'] = kmeans_pred.fit_predict(X_pred_scaled)
+'''
+print("[안내] 모델 예측 Capacity가 포함된 Cluster_Pred를 위 주석을 풀고 생성해주세요.")
+
+--- Cell 95 ---
+# S4_ALL이 앞선 Phase에서 선언되어 있다고 가정합니다. (17개 특징)
+# 'data' 변수의 타입 에러를 방지하기 위해, 원본 데이터프레임을 명시적으로 df로 불러오거나 타입을 확인합니다.
+
+# 'data'가 DataFrame이 아니고 Series일 경우(위 셀 등에서 덮어씌워진 경우),
+# 원본 df 이름이 'df_clean' 혹은 'df' 일 수 있으므로 이를 새로 할당합니다.
+if 'df' in locals() and type(df).__name__ == 'DataFrame':
+    data_df = df.copy()
+else:
+    # 만약 df라는 이름도 없다면 csv 다시 불러오기
+    import pandas as pd
+    try:
+        data_df = pd.read_csv('data.csv')
+    except:
+        data_df = pd.DataFrame() # 최후의 방어
+        print('경고: data.csv를 찾지 못했습니다.')
+
+gt_features = S4_ALL_features.copy() if 'S4_ALL_features' in locals() else list(data_df.select_dtypes(include=[np.number]).columns)
+
+if 'Capacity' not in gt_features and 'Capacity' in data_df.columns:
+    gt_features.append('Capacity')
+
+# 결측치 확인 및 제거 (원본 인덱스 유지)
+data_gt = data_df[gt_features].copy().dropna()
+
+# 스케일링 수행
+scaler_gt = StandardScaler()
+X_gt_scaled = scaler_gt.fit_transform(data_gt)
+
+# 최적 군집 수 탐색
+inertias = []
+K_range = range(2, 10)
+for k in K_range:
+    kmeans = KMeans(n_clusters=k, random_state=RANDOM_STATE_CLUSTER, n_init='auto')
+    kmeans.fit(X_gt_scaled)
+    inertias.append(kmeans.inertia_)
+
+plt.figure(figsize=(6, 4))
+plt.plot(K_range, inertias, marker='o')
+plt.title('Elbow Method For Optimal k (Ground Truth)')
+plt.xlabel('Number of clusters (k)')
+plt.ylabel('Inertia')
+plt.show()
+
+# k=4 적용
+N_CLUSTERS = 4
+kmeans_gt = KMeans(n_clusters=N_CLUSTERS, random_state=RANDOM_STATE_CLUSTER, n_init='auto')
+data_gt_labels = kmeans_gt.fit_predict(X_gt_scaled)
+
+# dropna로 남은 인덱스에만 매핑
+data_df.loc[data_gt.index, 'Cluster_GT'] = data_gt_labels
+
+# 사용자가 다음 셀들에서 'data' 변수를 쓴다면 DataFrame 형태로 다시 돌려줌
+data = data_df.copy()
+
+print(f"[완료] Ground Truth 클러스터링 (k={N_CLUSTERS})")
+
+
+--- Cell 97 ---
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+
+print("[진행] 효율적 데이터 예측 결과 기반 클러스터링 탐색을 시작합니다.")
+
+# 11-2에서 설정된 클러스터 개수 N_CLUSTERS 가 있다고 가정
+N_CLUSTERS_PRED = N_CLUSTERS if 'N_CLUSTERS' in locals() else 4
+
+# 예측 모델 결과(Prediction) 데이터가 있다고 가정
+# (앞선 셀들에서 최종 예측값 배열 'pred_capacity' 가 존재할 경우를 대비한 방어 로직)
+if 'pred_capacity' in locals():
+    X_pred = np.array(pred_capacity).reshape(-1, 1)
+else:
+    # 방어 로직: 예측값이 명시되지 않았을 경우, S1(초기 데이터) 등 임시 예측 데이터를 사용
+    print("경고: 'pred_capacity' 변수를 찾지 못해 임시 Capacity 데이터로 군집을 수행합니다.")
+    if 'data_df' in locals():
+        X_pred = data_df[['capacity']].copy()
+    else:
+        # Fallback
+        X_pred = data_gt[['capacity']].copy() if 'data_gt' in locals() else np.random.rand(100, 1)
+
+# 스케일링 수행
+scaler_pred = StandardScaler()
+X_pred_scaled = scaler_pred.fit_transform(X_pred)
+
+# K-Means 적용 (11-2와 동일한 개수, k=4 등으로 설정)
+kmeans_pred = KMeans(n_clusters=N_CLUSTERS_PRED, random_state=42, n_init='auto')
+data_pred_labels = kmeans_pred.fit_predict(X_pred_scaled)
+
+# 결과를 DataFrame에 저장
+if 'data_df' in locals():
+    data_df['Cluster_Pred'] = data_pred_labels
+    
+# 향후 11-4 ARI 평가를 위해 라벨 변수 노출
+labels_pred = data_pred_labels
+labels_gt = data_gt_labels if 'data_gt_labels' in locals() else (data_df['Cluster_GT'].values if 'Cluster_GT' in data_df.columns else None)
+
+print(f"[완료] 예측 데이터 기반 클러스터링 완료 (k={N_CLUSTERS_PRED})")
+
+--- Cell 99 ---
+# ARI Score를 통한 클러스터 유사도 확인
+# (주석 해제 후 실행 시 작동합니다)
+
+
+ari_score = adjusted_rand_score(data['Cluster_GT'], data['Cluster_Pred'])
+print(f'Adjusted Rand Index (ARI): {ari_score:.4f}')
+
+# 기준 (Threshold)
+if ari_score > 0.6:
+    print("검증 성공: 두 클러스터링 분류가 통계적으로 유사합니다. (ARI > 0.6)")
+    print("결론: 초기+완전방전 부분 데이터의 예측 결과만으로도, 전체 데이터의 진짜 성격과 유사한 배터리 패키징 묶음 설계가 가능합니다.")
+else:
+    print("검증 부족: 원본 묶음과 예측 묶음의 성질 차이가 다소 존재합니다.")
+
+
+--- Cell 101 ---
+# PCA로 2차원 축소 (기준 차원은 원본 데이터의 X_gt_scaled를 사용)
+# (위의 이전 셀들을 실행 후 주석을 해제하여 그려주세요)
+
+
+pca = PCA(n_components=2, random_state=RANDOM_STATE_CLUSTER)
+X_pca = pca.fit_transform(X_gt_scaled)  # 투영할 판은 원본 스케일을 사용
+
+data['PCA_X'] = X_pca[:, 0]
+data['PCA_Y'] = X_pca[:, 1]
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+# 1. 원본 (Ground Truth)
+sns.scatterplot(data=data, x='PCA_X', y='PCA_Y', hue='Cluster_GT', palette='Set1', s=50, ax=axes[0])
+axes[0].set_title('Ground Truth Clusters')
+
+# 2. 예측 (Prediction)
+sns.scatterplot(data=data, x='PCA_X', y='PCA_Y', hue='Cluster_Pred', palette='Set1', s=50, ax=axes[1])
+axes[1].set_title(f'Predicted Clusters (ARI: {ari_score:.4f} 이상)')
+
+plt.tight_layout()
+plt.show()
+

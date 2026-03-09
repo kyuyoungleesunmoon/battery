@@ -1,0 +1,4 @@
+--- Markdown Cells in battery_capacity_prediction.ipynb ---
+Cell 81: # Phase 10: Capacity 기반 클러스터링 및 모델 기반 세그먼트 분석
+Cell 85: # Phase 10: 배터리 노화/효율 특성 분석 (추가 분석)
+Cell 91: # Phase 11: 배터리 예측값 기반 클러스터링 검증

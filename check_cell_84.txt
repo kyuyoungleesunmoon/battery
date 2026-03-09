@@ -1,0 +1,99 @@
+--- Cell 83 (Code) ---
+# 10-2. 시각화: Capacity 군집 vs 모델기반 군집
+
+if 'phase10_outputs' not in globals():
+    raise RuntimeError('phase10_outputs가 없습니다. 10-1 셀을 먼저 실행하세요.')
+
+df_cluster = phase10_outputs['df_cluster'].copy()
+selected_model_df = phase10_outputs['selected_model_df']
+pred_feature_df = phase10_outputs['pred_feature_df']
+
+# 기본 통계 테이블
+capacity_summary = df_cluster.groupby('cluster_capacity')[TARGET].agg(['count', 'mean', 'std', 'min', 'max']).round(4)
+model_summary = df_cluster.groupby('cluster_model')[TARGET].agg(['count', 'mean', 'std', 'min', 'max']).round(4)
+
+print('=' * 80)
+print('10-2. 군집별 요약 통계')
+print('=' * 80)
+print('\n[Capacity 기준 군집]')
+print(capacity_summary)
+print('\n[모델기반 군집]')
+print(model_summary)
+
+# 교차표
+cross_tab = pd.crosstab(df_cluster['cluster_capacity'], df_cluster['cluster_model'])
+print('\n[교차표: Capacity 군집 x 모델기반 군집]')
+print(cross_tab)
+
+# 시각화
+fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+
+# (1) Capacity 군집별 박스플롯
+sns.boxplot(data=df_cluster, x='cluster_capacity', y=TARGET, ax=axes[0, 0], palette='Blues')
+axes[0, 0].set_title('Capacity 기준 군집별 용량 분포', fontweight='bold')
+axes[0, 0].set_xlabel('cluster_capacity')
+axes[0, 0].set_ylabel('capacity [Ah]')
+axes[0, 0].grid(alpha=0.2)
+
+# (2) 모델기반 군집별 박스플롯
+sns.boxplot(data=df_cluster, x='cluster_model', y=TARGET, ax=axes[0, 1], palette='Greens')
+axes[0, 1].set_title('모델기반 군집별 용량 분포', fontweight='bold')
+axes[0, 1].set_xlabel('cluster_model')
+axes[0, 1].set_ylabel('capacity [Ah]')
+axes[0, 1].grid(alpha=0.2)
+
+# (3) 교차표 히트맵
+sns.heatmap(cross_tab, annot=True, fmt='d', cmap='YlOrRd', ax=axes[1, 0])
+axes[1, 0].set_title('군집 교차 분포 (Count)', fontweight='bold')
+axes[1, 0].set_xlabel('cluster_model')
+axes[1, 0].set_ylabel('cluster_capacity')
+
+# (4) 대표 예측 피처 산점도 (첫 2개)
+pred_cols = list(pred_feature_df.columns)
+if len(pred_cols) >= 2:
+    x_col, y_col = pred_cols[0], pred_cols[1]
+    sc = axes[1, 1].scatter(
+        pred_feature_df[x_col], pred_feature_df[y_col],
+        c=df_cluster['cluster_model'], cmap='tab10', s=18, alpha=0.7
+    )
+    axes[1, 1].set_title('모델 예측공간 군집 분리', fontweight='bold')
+    axes[1, 1].set_xlabel(x_col)
+    axes[1, 1].set_ylabel(y_col)
+    axes[1, 1].grid(alpha=0.2)
+    plt.colorbar(sc, ax=axes[1, 1], label='cluster_model')
+else:
+    axes[1, 1].hist(pred_feature_df[pred_cols[0]], bins=30, alpha=0.7, color='slateblue')
+    axes[1, 1].set_title('모델 예측값 분포', fontweight='bold')
+    axes[1, 1].set_xlabel(pred_cols[0])
+
+plt.suptitle('Phase 10 클러스터링 분석 시각화', fontsize=16, fontweight='bold', y=1.02)
+plt.tight_layout()
+plt.show()
+
+print('\n✅ Phase 10-2 완료')
+
+--- Cell 84 (Code) ---
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# 기초 시각화: 주요 파생변수 (ocv_deviation, initial_impedance 등) 와 Capacity의 관계
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+# OCV 편차 vs Capacity
+sns.regplot(data=data, x='ocv_deviation', y='Capacity', scatter_kws={'alpha': 0.5}, line_kws={'color': 'red'}, ax=axes[0])
+axes[0].set_title('OCV Deviation vs Capacity')
+axes[0].set_xlabel('OCV Deviation (V)')
+axes[0].set_ylabel('Battery Capacity')
+
+# 초기 임피던스 vs Capacity
+sns.regplot(data=data, x='initial_impedance', y='Capacity', scatter_kws={'alpha': 0.5}, line_kws={'color': 'red'}, ax=axes[1])
+axes[1].set_title('Initial Impedance vs Capacity')
+axes[1].set_xlabel('Initial Impedance')
+axes[1].set_ylabel('Battery Capacity')
+
+plt.tight_layout()
+plt.show()
+
+--- Cell 85 (Code) ---
+## 10-3. 배터리 노화/효율 특성 분석 (추가 분석)
+

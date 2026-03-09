@@ -1,0 +1,49 @@
+--- Markdown Cells ---
+Cell 0: ## Phase 1: 데이터 탐색 및 분석 (EDA)
+Cell 37: # Phase 2: 파생변수 생성 (Feature Engineering)
+Cell 56: # Phase 3: 데이터 전처리 및 피처 선택
+Cell 73: # Phase 4: 최종 학습 데이터 구성
+Cell 85: ### ✅ Phase 4 완료
+Cell 88: # Phase 4: 학습 데이터 구성 (Data Splitting)
+Cell 92: # Phase 5: 모델 학습 및 평가
+Cell 97: ### 🚩 Phase 5 결론
+Cell 98: # Phase 7: Teacher-Student 기반 성능 고도화 (Knowledge Distillation)
+Cell 113: ### 🏁 Phase 7 종합 결론
+Cell 114: # Phase 8: 성능 고도화 실험 (Systematic Improvement)
+Cell 114: ### Baseline (Phase 7 결과)
+Cell 131: ## Phase 8 결론: 성능 고도화 실험 종합
+Cell 132: # Phase 9: S1 집중 개선 — 최소 피처로 최대 성능
+Cell 139: ## Phase 9 종합 결론: S1(최소 피처) 집중 개선 결과
+Cell 140: # Phase 10: KD 정보채널 보완 — 관계·순서 기반 Knowledge Distillation
+Cell 145: ## Phase 10 종합 결론: KD 정보채널 보완 결과
+
+--- Code Cells with Print Phase ---
+Cell 35: print('📋 Phase 1 EDA 요약 리포트')
+Cell 35: print('✅ Phase 1 완료 → Phase 2 (파생변수 생성)으로 진행')
+Cell 48: print('Phase 2 파생변수 생성 결과 요약')
+Cell 54: print(f'   총 {len(high_corr_pairs)}개 쌍 발견 → Phase 3에서 VIF 분석 필요')
+Cell 67: print('✅ Phase 3 완료 → Phase 4 (학습 데이터 구성)로 진행')
+Cell 86: print('📊 [Phase 3] 정제 후 주요 피처 상관관계')
+Cell 86: print('📊 [Phase 3] 파생변수 산점도 (Target vs Derived)')
+Cell 86: print('📊 [Phase 3] VIF 비교 (제거 전 vs 후)')
+Cell 91: print('✅ Phase 4 완료 → Phase 5 (모델 학습)로 진행')
+Cell 129: print('📊 Phase 7-8 전체 실험 종합 비교')
+Cell 129: print(f'🏆 Phase 8 최종 결과 요약')
+Cell 133: print('📊 Phase 9-1: S1 확장 피처 엔지니어링')
+Cell 134: print('📊 Phase 9-2: S1 Optuna 전용 딥 최적화')
+Cell 135: print('📊 Phase 9-3: S1 Stacking 앙상블 (7 Base + Ridge Meta)')
+Cell 136: print('📊 Phase 9-4: 확장S1 + Teacher KD (Optuna α+HP 동시 탐색)')
+Cell 137: print('📊 Phase 9-5: Teacher-Guided Binning & 최종 Super-Stacking')
+Cell 137: print(f'\n[B] Super-Stacking: 모든 Phase 9 모델 결합')
+Cell 138: print('📊 Phase 9-6: 최종 종합 비교 & Weighted Prediction Blending')
+Cell 138: print(f'🏆 Phase 9 전체 실험 종합 비교 (S1 기반)')
+Cell 138: print(f'🏆 Phase 9 핵심 결론')
+Cell 141: print('📊 Phase 10-1: Relational Knowledge Distillation (RKD)')
+Cell 142: print('📊 Phase 10-2: LambdaKD — 순위 기반 Knowledge Distillation')
+Cell 143: print('📊 Phase 10-3: Progressive Feature Bridge')
+Cell 143: print('\n[비교] S2 → v25 직접 (Phase 8-3 방식):')
+Cell 144: print('📊 Phase 10-4: KD 정보채널 보완 전체 종합 비교')
+Cell 144: print('\n[A] 전체 KD 방법 비교 (S1~S3 × 기존 KD + Phase 10)')
+Cell 144: print('🏆 Phase 10 핵심 발견')
+Cell 144: print(f'\n2. Phase 10 최고: {best_new[0]}')
+Cell 144: print(f'   • Phase 10 최고 RMSE: {best_new[2]:.4f}')

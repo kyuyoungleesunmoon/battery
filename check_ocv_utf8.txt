@@ -1,0 +1,9 @@
+﻿--- Code Cell 28 contains ocv_deviation ---
+df['ocv_deviation'] = df[v_initial] - NOMINAL_VOLTAGE
+'voltage_sag', 'ocv_deviation']
+--- Code Cell 42 contains ocv_deviation ---
+scenario1_features = ['initial_voltage', 'initial_impedance', 'ocv_deviation']
+'impedance_voltage_product', 'health_index', 'ocv_deviation']
+--- Code Cell 84 contains ocv_deviation ---
+# 기초 시각화: 주요 파생변수 (ocv_deviation, initial_impedance 등) 와 Capacity의 관계
+sns.regplot(data=data, x='ocv_deviation', y='Capacity', scatter_kws={'alpha': 0.5}, line_kws={'color': 'red'}, ax=axes[0])
